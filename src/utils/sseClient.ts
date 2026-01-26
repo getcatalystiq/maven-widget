@@ -2,13 +2,19 @@ import type { ChatRequest, SSEEvent, SessionListResponse, HistoryResponse } from
 
 export class SSEClient {
   private apiUrl: string;
+  private baseUrl: string;
   private getToken: (() => Promise<string>) | undefined;
   private userId: string | undefined;
   private abortController: AbortController | null = null;
 
   constructor(apiUrl: string, getToken?: () => Promise<string>, userId?: string) {
     // Ensure URL ends without trailing slash for clean concatenation
-    this.apiUrl = apiUrl.replace(/\/$/, '');
+    const cleanUrl = apiUrl.replace(/\/$/, '');
+    // Extract base URL for REST endpoints (remove /chat/stream or /chat suffix)
+    this.baseUrl = cleanUrl.replace(/\/chat\/stream$/, '').replace(/\/chat$/, '');
+    // Ensure streaming URL always points to /chat/stream
+    // If URL doesn't already have /chat/stream, append it
+    this.apiUrl = cleanUrl.endsWith('/chat/stream') ? cleanUrl : `${this.baseUrl}/chat/stream`;
     this.getToken = getToken;
     this.userId = userId;
   }
@@ -63,22 +69,55 @@ export class SSEClient {
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n\n');
+        // NDJSON format: split on single newline
+        const lines = buffer.split('\n');
+        // Keep the last incomplete line in the buffer
         buffer = lines.pop() || '';
 
         for (const line of lines) {
           if (!line.trim()) continue;
 
-          const dataMatch = line.match(/^data: (.+)$/m);
-          if (dataMatch) {
-            // BedrockAgentCore SSE format: data: {"type": "chunk", "data": {"text": "..."}}
-            const parsed = JSON.parse(dataMatch[1]);
-            if (parsed.type && parsed.data) {
-              yield {
-                event: parsed.type as SSEEvent['event'],
-                data: parsed.data,
-              };
+          try {
+            // Maven-Core NDJSON format: {"type": "content", "text": "..."}
+            const parsed = JSON.parse(line);
+
+            // Map maven-core event types to widget event types
+            // Maven-Core: start, content, tool_use, done, error
+            // Widget: session, chunk, progress, done, error
+            let eventType: SSEEvent['event'];
+            let data: any;
+
+            switch (parsed.type) {
+              case 'start':
+                eventType = 'session';
+                data = { sessionId: parsed.sessionId };
+                break;
+              case 'content':
+                eventType = 'chunk';
+                data = { text: parsed.text };
+                break;
+              case 'tool_use':
+                eventType = 'progress';
+                data = { tool: parsed.name, status: 'executing' };
+                break;
+              case 'done':
+                eventType = 'done';
+                data = { sessionId: parsed.sessionId, usage: parsed.usage };
+                break;
+              case 'error':
+                eventType = 'error';
+                data = { message: parsed.message, error: parsed.message };
+                break;
+              default:
+                // Pass through other event types (browser_session, file_available, etc.)
+                eventType = parsed.type as SSEEvent['event'];
+                data = parsed.data || parsed;
             }
+
+            yield { event: eventType, data };
+          } catch (e) {
+            // Log warning for malformed lines but continue processing
+            console.warn('[Maven Widget] Failed to parse NDJSON line:', line, e);
           }
         }
       }
@@ -119,63 +158,17 @@ export class SSEClient {
   }
 
   /**
-   * Parse SSE response for action-based requests (sessions, history)
-   * Returns the parsed data from the first event of the expected type
-   */
-  private async parseActionResponse(response: Response, expectedType: string): Promise<any> {
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error('No response body');
-    }
-
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (!line.trim()) continue;
-
-        const dataMatch = line.match(/^data: (.+)$/m);
-        if (dataMatch) {
-          const parsed = JSON.parse(dataMatch[1]);
-          // BedrockAgentCore SSE format: {"type": "sessions", "data": {...}}
-          if (parsed.type === expectedType) {
-            return parsed.data;
-          }
-          if (parsed.type === 'error') {
-            throw new Error(parsed.data?.message || 'Unknown error');
-          }
-        }
-      }
-    }
-
-    throw new Error(`Expected ${expectedType} response not received`);
-  }
-
-  /**
    * Fetch all sessions for the current user
-   * Uses /invocations endpoint with action="list_sessions"
-   * AgentCore only exposes /invocations, not custom routes
+   * Uses GET {baseUrl}/sessions endpoint
    */
   async fetchSessions(): Promise<SessionListResponse> {
     try {
       const headers = await this.getHeaders();
-      console.log('[Maven Widget] Fetching sessions via invocations action');
+      console.log('[Maven Widget] Fetching sessions via GET /sessions');
 
-      const response = await fetch(this.apiUrl, {
-        method: 'POST',
+      const response = await fetch(`${this.baseUrl}/sessions`, {
+        method: 'GET',
         headers,
-        body: JSON.stringify({
-          action: 'list_sessions',
-          userId: this.userId,
-        }),
       });
 
       if (!response.ok) {
@@ -183,8 +176,8 @@ export class SSEClient {
         return { sessions: [], count: 0, error: `HTTP ${response.status}` };
       }
 
-      // Agent returns SSE stream with type="sessions"
-      const data = await this.parseActionResponse(response, 'sessions');
+      // Maven-Core returns JSON response
+      const data = await response.json();
       console.log('[Maven Widget] Sessions data:', data);
       return {
         sessions: data.sessions || [],
@@ -198,30 +191,24 @@ export class SSEClient {
 
   /**
    * Fetch message history for a specific session
-   * Uses /invocations endpoint with action="get_history"
-   * AgentCore only exposes /invocations, not custom routes
+   * Uses GET {baseUrl}/sessions/{sessionId} endpoint
    */
   async fetchHistory(sessionId: string): Promise<HistoryResponse> {
     try {
       const headers = await this.getHeaders();
-      console.log('[Maven Widget] Fetching history via invocations action');
+      console.log('[Maven Widget] Fetching history via GET /sessions/:id');
 
-      const response = await fetch(this.apiUrl, {
-        method: 'POST',
+      const response = await fetch(`${this.baseUrl}/sessions/${sessionId}`, {
+        method: 'GET',
         headers,
-        body: JSON.stringify({
-          action: 'get_history',
-          sessionId,
-          userId: this.userId,
-        }),
       });
 
       if (!response.ok) {
         return { sessionId, messages: [], error: `HTTP ${response.status}` };
       }
 
-      // Agent returns SSE stream with type="history"
-      const data = await this.parseActionResponse(response, 'history');
+      // Maven-Core returns JSON response
+      const data = await response.json();
       return {
         sessionId: data.sessionId || sessionId,
         messages: data.messages || [],
