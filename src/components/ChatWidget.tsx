@@ -11,6 +11,7 @@ import { SkillParameterModal } from './SkillParameterModal';
 import { NewSessionModal } from './NewSessionModal';
 import { BrowserViewer } from './BrowserViewer';
 import { TodoPanel } from './TodoPanel';
+import { LoginScreen } from './LoginScreen';
 import { SkillBuilderProvider, SkillBuilderView } from '../skill-builder';
 import '../skill-builder/styles/skill-builder.css';
 import { CronJobsView } from './CronJobs/CronJobsView';
@@ -24,6 +25,7 @@ import { contextExtractor } from '../utils/contextExtractor';
 import { UploadService, validateFile } from '../utils/uploadService';
 import { extractUserNameFromToken } from '../utils/jwtUtils';
 import { useOAuthCallback, OAuthResult } from '../hooks/useOAuthCallback';
+import { useOptionalAuth, AuthUser } from '../contexts/AuthContext';
 import type { MavenWidgetConfig, Message, ChatState, Skill, BrowserSession, SessionSummary, FileAttachment, FileAttachmentRef, App } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -31,9 +33,12 @@ interface ChatWidgetProps {
   config: MavenWidgetConfig;
   onSidebarWidthChange?: (width: number) => void;
   onWidgetOpenChange?: (isOpen: boolean) => void;
+  useBuiltinAuth?: boolean;
 }
 
-export function ChatWidget({ config, onSidebarWidthChange, onWidgetOpenChange }: ChatWidgetProps) {
+export function ChatWidget({ config, onSidebarWidthChange, onWidgetOpenChange, useBuiltinAuth }: ChatWidgetProps) {
+  // Auth state for built-in auth mode - use optional hook that returns null when not in AuthProvider
+  const auth = useOptionalAuth();
   const [state, setState] = useState<ChatState>(() => {
     // Load state from localStorage with error handling for iOS browsers
     try {
@@ -211,15 +216,27 @@ export function ChatWidget({ config, onSidebarWidthChange, onWidgetOpenChange }:
   const chatEndpoint = agentUrl || apiUrl;
 
   // Memoize token getter function to prevent recreating on every render
+  // When using built-in auth, use the auth context's getToken
   const getToken = useMemo(() => {
+    if (useBuiltinAuth && auth) {
+      return auth.getToken;
+    }
     return config.getToken || (config.token ? async () => config.token! : undefined);
-  }, [config.getToken, config.token]);
+  }, [useBuiltinAuth, auth, config.getToken, config.token]);
 
-  // Extract user name from JWT token on mount
+  // Extract user name from JWT token on mount, or use auth user when in built-in auth mode
   useEffect(() => {
     // If userName is provided in config, use that instead of extracting from token
     if (config.userName) {
       setTokenUserName(config.userName);
+      return;
+    }
+
+    // When using built-in auth, use the auth context user info
+    if (useBuiltinAuth && auth?.user) {
+      // Use email prefix as display name
+      const emailName = auth.user.email?.split('@')[0];
+      setTokenUserName(emailName || null);
       return;
     }
 
@@ -236,7 +253,7 @@ export function ChatWidget({ config, onSidebarWidthChange, onWidgetOpenChange }:
         console.warn('[Maven Widget] Failed to get token for user name extraction:', e);
       });
     }
-  }, [getToken, config.userName]);
+  }, [getToken, config.userName, useBuiltinAuth, auth?.user]);
 
   // Use ref for sseClient to avoid circular dependency in useCallback hooks
   const sseClientRef = useRef<SSEClient | null>(null);
@@ -800,7 +817,7 @@ export function ChatWidget({ config, onSidebarWidthChange, onWidgetOpenChange }:
             setProgressStatus('');
             return; // Exit the stream processing
           } else if (event.event === 'error') {
-            throw new Error(event.data.error);
+            throw new Error(event.data.message || event.data.error);
           }
         }
       } finally {
@@ -1196,6 +1213,78 @@ export function ChatWidget({ config, onSidebarWidthChange, onWidgetOpenChange }:
       setWidgetRect(chatWindowRef.current.getBoundingClientRect());
     }
   }, [state.isBrowserViewerOpen]);
+
+  // When using built-in auth, show login screen if not authenticated
+  // Only check after initial auth loading is complete
+  if (useBuiltinAuth && auth && !auth.isLoading && !auth.isAuthenticated) {
+    return (
+      <div className={`maven-widget-container ${state.isOpen ? 'widget-open' : ''}`}>
+        {/* Chat Button - Opens sidebar */}
+        {!state.isOpen && (
+          <button
+            className="maven-chat-button"
+            onClick={toggleChat}
+            aria-label="Open chat"
+          >
+            {config.avatar ? (
+              <img src={config.avatar} alt="Chat" className="maven-chat-button-logo" />
+            ) : (
+              <svg viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="40" y="50" width="120" height="110" rx="25" fill="#0a1628"/>
+                <polygon points="50,50 40,20 70,45" fill="#0a1628"/>
+                <polygon points="150,50 160,20 130,45" fill="#0a1628"/>
+                <circle cx="72" cy="95" r="25" fill="#faf8f5" stroke="#0a1628" strokeWidth="4"/>
+                <circle cx="72" cy="95" r="12" fill="#0a1628"/>
+                <circle cx="76" cy="91" r="4" fill="#faf8f5"/>
+                <circle cx="128" cy="95" r="25" fill="#faf8f5" stroke="#0a1628" strokeWidth="4"/>
+                <circle cx="128" cy="95" r="12" fill="#0a1628"/>
+                <circle cx="132" cy="91" r="4" fill="#faf8f5"/>
+                <line x1="97" y1="95" x2="103" y2="95" stroke="#0a1628" strokeWidth="5" strokeLinecap="round"/>
+                <path d="M100 118 L92 135 L100 148 L108 135 Z" fill="#e07856"/>
+              </svg>
+            )}
+          </button>
+        )}
+
+        {/* Chat Window - Login Screen */}
+        <div
+          ref={chatWindowRef}
+          className={`maven-chat-window sidebar-mode ${state.isOpen ? 'open' : ''}`}
+          style={{ width: `${state.sidebarWidth}px` }}
+        >
+          {/* Resize Handle */}
+          <div
+            className={`maven-resize-handle ${isResizing ? 'resizing' : ''}`}
+            onMouseDown={handleResizeStart}
+            role="separator"
+            aria-label="Resize sidebar"
+          />
+
+          {/* Title Bar with close button only */}
+          <div className="maven-title-bar">
+            <div className="maven-title-bar-left">
+              <button
+                className="maven-title-bar-button close"
+                onClick={toggleChat}
+                aria-label="Close"
+              />
+            </div>
+            <div className="maven-title-bar-center">
+              <span className="maven-title-bar-title">Sign In</span>
+            </div>
+            <div className="maven-title-bar-right" />
+          </div>
+
+          {/* Login Screen */}
+          <LoginScreen
+            title={config.title}
+            subtitle={config.subtitle}
+            avatar={config.avatar}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`maven-widget-container ${state.isOpen ? 'widget-open' : ''}`}>

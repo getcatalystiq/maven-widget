@@ -24,6 +24,10 @@ export interface MavenWidgetConfig {
   getToken?: () => Promise<string>;
   enableVoiceInput?: boolean; // Requires host site to allow microphone via Permissions-Policy
   enableCameraInput?: boolean; // Requires host site to allow camera via Permissions-Policy
+
+  // Built-in authentication options (uses maven-core auth endpoints)
+  useBuiltinAuth?: boolean;      // Enable maven-core login flow instead of external auth
+  controlPlaneUrl?: string;      // Auth API URL (required when useBuiltinAuth is true)
 }
 
 export interface Skill {

@@ -1,6 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { ChatWidget } from './components/ChatWidget';
+import { AuthProvider } from './contexts/AuthContext';
 import type { MavenWidgetConfig } from './types';
 
 // Build-time defines injected by esbuild
@@ -19,6 +20,10 @@ class MavenWidget extends HTMLElement {
   private container: HTMLElement | null = null;
   private mediaQueryListener: ((e: MediaQueryListEvent) => void) | null = null;
   private htmlClassObserver: MutationObserver | null = null;
+
+  // Built-in auth properties
+  private useBuiltinAuth: boolean = false;
+  private controlPlaneUrl: string | null = null;
 
   constructor() {
     super();
@@ -225,6 +230,21 @@ class MavenWidget extends HTMLElement {
     const token = this.getAttribute('token');
     const themeModeAttr = this.getAttribute('theme-mode');
 
+    // Parse built-in auth options
+    const useBuiltinAuthAttr = this.getAttribute('use-builtin-auth');
+    this.useBuiltinAuth = useBuiltinAuthAttr === 'true' || useBuiltinAuthAttr === '';
+    this.controlPlaneUrl = this.getAttribute('control-plane-url');
+
+    // Validate built-in auth configuration
+    if (this.useBuiltinAuth) {
+      if (!this.controlPlaneUrl) {
+        console.error('[Maven Widget] control-plane-url is required when use-builtin-auth is enabled');
+      }
+      if (!tenantId) {
+        console.error('[Maven Widget] tenant-id is required when use-builtin-auth is enabled');
+      }
+    }
+
     // Parse theme mode (light, dark, or auto)
     let themeMode: 'light' | 'dark' | 'auto' | undefined;
     if (themeModeAttr === 'light' || themeModeAttr === 'dark' || themeModeAttr === 'auto') {
@@ -246,15 +266,20 @@ class MavenWidget extends HTMLElement {
       role: role ? role : undefined,
       pagePattern: pagePattern ? pagePattern : undefined,
       token: token ? token : undefined,
+      useBuiltinAuth: this.useBuiltinAuth,
+      controlPlaneUrl: this.controlPlaneUrl || undefined,
     };
 
     // Use global getClerkToken if available (preferred method for dynamic token refresh)
     // This is set by the widget loader script
-    if (typeof (window as any).getClerkToken === 'function') {
+    // Skip when using built-in auth (auth context will provide tokens)
+    if (!this.useBuiltinAuth && typeof (window as any).getClerkToken === 'function') {
       config.getToken = (window as any).getClerkToken;
       console.log('[Maven Widget] Using dynamic token refresh via window.getClerkToken');
-    } else if (token) {
+    } else if (!this.useBuiltinAuth && token) {
       console.log('[Maven Widget] Using static token (no dynamic refresh)');
+    } else if (this.useBuiltinAuth) {
+      console.log('[Maven Widget] Using built-in authentication');
     }
 
     // Parse skills from JSON if provided
@@ -389,7 +414,9 @@ class MavenWidget extends HTMLElement {
 
     // Create React root and render
     this.root = createRoot(this.container);
-    this.root.render(
+
+    // Render widget - wrap with AuthProvider when built-in auth is enabled
+    const widgetElement = (
       <ChatWidget
         config={this.config}
         onSidebarWidthChange={(width) => {
@@ -398,8 +425,22 @@ class MavenWidget extends HTMLElement {
         onWidgetOpenChange={(isOpen) => {
           this.setWidgetOpen(isOpen);
         }}
+        useBuiltinAuth={this.useBuiltinAuth}
       />
     );
+
+    if (this.useBuiltinAuth && this.controlPlaneUrl && this.config.tenantId) {
+      this.root.render(
+        <AuthProvider
+          controlPlaneUrl={this.controlPlaneUrl}
+          tenantId={this.config.tenantId}
+        >
+          {widgetElement}
+        </AuthProvider>
+      );
+    } else {
+      this.root.render(widgetElement);
+    }
   }
 
   // Allow updating config dynamically
@@ -413,7 +454,7 @@ class MavenWidget extends HTMLElement {
       }
 
       if (this.root) {
-        this.root.render(
+        const widgetElement = (
           <ChatWidget
             config={this.config}
             onSidebarWidthChange={(width) => {
@@ -422,8 +463,22 @@ class MavenWidget extends HTMLElement {
             onWidgetOpenChange={(isOpen) => {
               this.setWidgetOpen(isOpen);
             }}
+            useBuiltinAuth={this.useBuiltinAuth}
           />
         );
+
+        if (this.useBuiltinAuth && this.controlPlaneUrl && this.config.tenantId) {
+          this.root.render(
+            <AuthProvider
+              controlPlaneUrl={this.controlPlaneUrl}
+              tenantId={this.config.tenantId}
+            >
+              {widgetElement}
+            </AuthProvider>
+          );
+        } else {
+          this.root.render(widgetElement);
+        }
       }
     }
   }
@@ -446,6 +501,8 @@ class MavenWidget extends HTMLElement {
       'role',
       'page-pattern',
       'token',
+      'use-builtin-auth',
+      'control-plane-url',
     ];
   }
 }
