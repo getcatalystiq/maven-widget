@@ -45,25 +45,21 @@ function connectorsReducer(state: ConnectorsState, action: ConnectorsAction): Co
 
 interface ConnectorsProviderProps {
   children: ReactNode;
-  tenantId: string;
-  userId: string;
-  adminApiUrl: string;
+  controlPlaneUrl: string;
   getToken?: () => Promise<string>;
 }
 
 export function ConnectorsProvider({
   children,
-  tenantId,
-  userId,
-  adminApiUrl,
+  controlPlaneUrl,
   getToken,
 }: ConnectorsProviderProps) {
   const [state, dispatch] = useReducer(connectorsReducer, initialState);
 
-  // Helper to make authenticated requests to admin API
+  // Helper to make authenticated requests to control plane widget API
   const callApi = useCallback(
     async <T,>(method: string, path: string, body?: object): Promise<T> => {
-      const url = `${adminApiUrl}/tenants/${tenantId}${path}`;
+      const url = `${controlPlaneUrl}/widget${path}`;
 
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
@@ -90,51 +86,42 @@ export function ConnectorsProvider({
 
       return data;
     },
-    [adminApiUrl, tenantId, getToken]
+    [controlPlaneUrl, getToken]
   );
 
-  // Fetch connectors with user connection status
+  // Fetch connectors with user connection status (userId from JWT)
   const refresh = useCallback(async () => {
-    if (!userId) {
-      console.warn('[Connectors] No userId provided, skipping fetch');
-      return;
-    }
-
     dispatch({ type: 'LOADING' });
     try {
       const data = await callApi<{ connectors: Connector[] }>(
         'GET',
-        `/connectors/user-status?user_id=${encodeURIComponent(userId)}`
+        '/connectors'
       );
       dispatch({ type: 'LOADED', connectors: data.connectors || [] });
     } catch (error) {
       console.error('[Connectors] Error loading connectors:', error);
       dispatch({ type: 'ERROR', error: (error as Error).message });
     }
-  }, [callApi, userId]);
+  }, [callApi]);
 
   // Connect user to a connector via OAuth
   const connect = useCallback(async (connectorId: string) => {
     dispatch({ type: 'CONNECTING', connectorId });
     try {
-      // Build OAuth callback URL (same origin, handled by backend)
-      const callbackUrl = `${adminApiUrl}/oauth/callback`;
+      // Build OAuth callback URL (same origin)
+      const redirectUri = `${window.location.origin}/oauth/callback`;
 
       // Initiate OAuth flow to get authorization URL
-      const data = await callApi<{ authorization_url: string }>(
+      const data = await callApi<{ authorizationUrl: string }>(
         'POST',
         `/connectors/${connectorId}/oauth/initiate`,
-        {
-          user_id: userId,
-          origin: window.location.origin,
-          callback_url: callbackUrl,
-        }
+        { redirectUri }
       );
 
-      if (data.authorization_url) {
+      if (data.authorizationUrl) {
         // Open OAuth popup
         const popup = window.open(
-          data.authorization_url,
+          data.authorizationUrl,
           'maven_oauth',
           'width=600,height=700,popup'
         );
@@ -152,16 +139,15 @@ export function ConnectorsProvider({
       console.error('[Connectors] Error connecting:', error);
       dispatch({ type: 'CONNECT_ERROR', connectorId, error: (error as Error).message });
     }
-  }, [callApi, adminApiUrl, userId]);
+  }, [callApi]);
 
-  // Disconnect user from a connector
+  // Disconnect user from a connector (userId from JWT)
   const disconnect = useCallback(async (connectorId: string) => {
     dispatch({ type: 'DISCONNECTING', connectorId });
     try {
       await callApi<{ disconnected: boolean }>(
         'POST',
-        `/connectors/${connectorId}/disconnect`,
-        { user_id: userId }
+        `/connectors/${connectorId}/disconnect`
       );
       dispatch({ type: 'DISCONNECT_SUCCESS', connectorId });
       // Refresh to get updated status
@@ -170,7 +156,7 @@ export function ConnectorsProvider({
       console.error('[Connectors] Error disconnecting:', error);
       dispatch({ type: 'DISCONNECT_ERROR', connectorId, error: (error as Error).message });
     }
-  }, [callApi, userId, refresh]);
+  }, [callApi, refresh]);
 
   // Handle OAuth callback (success/error from popup)
   useOAuthCallback({
@@ -191,21 +177,17 @@ export function ConnectorsProvider({
 
   // Initial load
   useEffect(() => {
-    if (userId) {
-      refresh();
-    }
-  }, [userId]); // Only re-run when userId changes, not refresh
+    refresh();
+  }, []); // Only run once on mount
 
   // Refresh on window focus
   useEffect(() => {
     const handleFocus = () => {
-      if (userId) {
-        refresh();
-      }
+      refresh();
     };
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
-  }, [userId, refresh]);
+  }, [refresh]);
 
   const value: ConnectorsContextValue = {
     ...state,

@@ -45,25 +45,17 @@ export function ConnectorCard({
   isConnecting,
   isDisconnecting,
 }: ConnectorCardProps) {
-  const icon = connector.icon || 'plug';
-  const hasVisualComponent = connector.show_in_widget;
-
   return (
-    <div className={`maven-connector-card ${hasVisualComponent ? 'maven-connector-card-visual' : ''}`}>
+    <div className="maven-connector-card">
       <div className="maven-connector-header">
         <div className="maven-connector-icon">
-          {isEmoji(icon) ? (
-            <span className="maven-connector-emoji">{icon}</span>
-          ) : (
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              {PLUG_ICON}
-            </svg>
-          )}
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            {PLUG_ICON}
+          </svg>
         </div>
         <div className="maven-connector-info">
           <div className="maven-connector-name-row">
             <h4 className="maven-connector-name">{connector.name}</h4>
-            {hasVisualComponent && <VisualBadge />}
           </div>
           {connector.description && (
             <p className="maven-connector-description">{connector.description}</p>

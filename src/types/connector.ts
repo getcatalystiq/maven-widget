@@ -1,26 +1,19 @@
 /**
  * Connector types for the widget.
- * Matches the API response from GET /tenants/{id}/connectors/user-status
+ * Matches the API response from GET /widget/connectors
  */
 
 export interface Connector {
   id: string;
   name: string;
-  slug: string;
-  description?: string;
-  mcp_server_url: string;
-  /** True if connector has client_id configured (requires OAuth) */
-  requires_oauth: boolean;
-  /** True if this connector is an OpenAI app with visual components */
-  show_in_widget?: boolean;
-  /** Icon for the connector (emoji or Lucide icon name) */
-  icon?: string;
+  description: string | null;
+  mcpServerUrl: string | null;
+  /** True if connector has oauthClientId configured (requires OAuth) */
+  requiresOauth: boolean;
   /** True if user has a valid token for this connector */
   connected: boolean;
   /** Token expiration timestamp (ISO format) */
-  expires_at?: string;
-  /** When user connected (ISO format) */
-  connected_at?: string;
+  expiresAt: string | null;
 }
 
 export interface ConnectorsState {

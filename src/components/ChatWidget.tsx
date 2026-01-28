@@ -1638,12 +1638,10 @@ export function ChatWidget({ config, onSidebarWidthChange, onWidgetOpenChange, u
         )}
 
         {/* Connectors Overlay */}
-        {showConnectors && config.tenantId && config.userId && (
+        {showConnectors && config.controlPlaneUrl && (
           <div className="maven-connectors-overlay">
             <ConnectorsProvider
-              tenantId={config.tenantId}
-              userId={config.userId}
-              adminApiUrl={apiUrl}
+              controlPlaneUrl={config.controlPlaneUrl}
               getToken={getToken}
             >
               <ConnectorsView
