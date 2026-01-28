@@ -4,23 +4,31 @@ export type { SkillBuilderProviderProps } from './context/SkillBuilderContext';
 
 // Types
 export type {
-  SkillFile,
-  ChatMessage,
-  SkillSummary,
-  SkillBuilderState,
-  SkillBuilderAction,
+  Skill,
+  SkillWithContent,
+  SkillCreatePayload,
+  SkillUpdatePayload,
+  SkillsError,
+  SkillsListState,
+  SelectedSkillState,
+  SaveState,
+  SkillsAdminState,
+  SkillsAction,
 } from './types';
+export { hasUnsavedChanges, validateSkillName } from './types';
 
 // Components
-export {
-  SkillBuilderView,
-  SkillFileBrowser,
-  SkillCodeEditor,
-  SkillChatPanel,
-  SkillsList,
-  NewFileModal,
-  ActivityIndicator,
-} from './components';
+export { SkillBuilderView, SkillsList, SkillEditor, preloadEditor } from './components';
 
-// Utils
-export { parseSSEResponse } from './utils/sse';
+// API
+export {
+  initSkillsApi,
+  listSkills,
+  getSkill,
+  createSkillWithAssignment,
+  updateSkill,
+  deleteSkill,
+  toggleSkillEnabled,
+  ApiError,
+  PartialCreateError,
+} from './api/skills';
