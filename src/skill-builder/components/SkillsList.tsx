@@ -6,7 +6,6 @@ import { preloadEditor } from './SkillEditor';
 
 interface SkillsListProps {
   onSkillSelect: () => void;
-  onClose: () => void;
 }
 
 // Icons as SVG components
@@ -65,7 +64,7 @@ function generateSkillContent(name: string, description: string): string {
     .replace(/{description}/g, description || 'No description provided.');
 }
 
-export function SkillsList({ onSkillSelect, onClose: _onClose }: SkillsListProps) {
+export function SkillsList({ onSkillSelect }: SkillsListProps) {
   const {
     state,
     loadSkills,

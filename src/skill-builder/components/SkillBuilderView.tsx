@@ -38,7 +38,6 @@ export function SkillBuilderView({ onClose, onBack }: SkillBuilderViewProps) {
       <div className="maven-skill-builder">
         <SkillsList
           onSkillSelect={() => setShowSkillsList(false)}
-          onClose={handleClose}
         />
       </div>
     );

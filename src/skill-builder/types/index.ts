@@ -153,6 +153,7 @@ export type SkillsAction =
   | { type: 'SELECT_SKILL_SUCCESS'; skill: SkillWithContent }
   | { type: 'SELECT_SKILL_ERROR'; skillId: string; error: SkillsError }
   | { type: 'DESELECT_SKILL' }
+  | { type: 'DESELECT_IF_SELECTED'; skillId: string }
   // Draft content actions
   | { type: 'UPDATE_DRAFT_CONTENT'; content: string }
   // Save actions

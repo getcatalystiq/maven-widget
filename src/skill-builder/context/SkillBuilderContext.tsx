@@ -77,6 +77,17 @@ function reducer(state: SkillsAdminState, action: SkillsAction): SkillsAdminStat
         save: { status: 'idle' },
       };
 
+    case 'DESELECT_IF_SELECTED':
+      // Only deselect if the skill being deleted is currently selected
+      if (state.selected.status === 'loaded' && state.selected.skill.id === action.skillId) {
+        return {
+          ...state,
+          selected: { status: 'none' },
+          save: { status: 'idle' },
+        };
+      }
+      return state;
+
     // Draft content actions
     case 'UPDATE_DRAFT_CONTENT':
       if (state.selected.status !== 'loaded') return state;
@@ -213,8 +224,12 @@ export function SkillBuilderProvider({
   const selectSkillRequestRef = useRef(0);
   const toggleRequestRef = useRef<Map<string, number>>(new Map());
 
-  // AbortController for cleanup
-  const abortControllerRef = useRef<AbortController | null>(null);
+  // Separate AbortControllers for each operation type (prevents mutual cancellation)
+  const loadSkillsAbortRef = useRef<AbortController | null>(null);
+  const selectSkillAbortRef = useRef<AbortController | null>(null);
+
+  // Mount guard for write operations
+  const isMountedRef = useRef(true);
 
   // Initialize API on mount
   useEffect(() => {
@@ -227,8 +242,11 @@ export function SkillBuilderProvider({
 
   // Cleanup on unmount
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
-      abortControllerRef.current?.abort();
+      isMountedRef.current = false;
+      loadSkillsAbortRef.current?.abort();
+      selectSkillAbortRef.current?.abort();
     };
   }, []);
 
@@ -238,16 +256,16 @@ export function SkillBuilderProvider({
     dispatch({ type: 'LOAD_SKILLS_START' });
 
     try {
-      abortControllerRef.current?.abort();
-      abortControllerRef.current = new AbortController();
+      loadSkillsAbortRef.current?.abort();
+      loadSkillsAbortRef.current = new AbortController();
 
-      const result = await apiListSkills(abortControllerRef.current.signal);
+      const result = await apiListSkills(loadSkillsAbortRef.current.signal);
 
-      if (thisRequest !== loadSkillsRequestRef.current) return;
+      if (!isMountedRef.current || thisRequest !== loadSkillsRequestRef.current) return;
 
       dispatch({ type: 'LOAD_SKILLS_SUCCESS', skills: result.skills });
     } catch (error) {
-      if (thisRequest !== loadSkillsRequestRef.current) return;
+      if (!isMountedRef.current || thisRequest !== loadSkillsRequestRef.current) return;
       if (error instanceof Error && error.name === 'AbortError') return;
 
       dispatch({ type: 'LOAD_SKILLS_ERROR', error: toSkillsError(error) });
@@ -260,16 +278,16 @@ export function SkillBuilderProvider({
     dispatch({ type: 'SELECT_SKILL_START', skillId });
 
     try {
-      abortControllerRef.current?.abort();
-      abortControllerRef.current = new AbortController();
+      selectSkillAbortRef.current?.abort();
+      selectSkillAbortRef.current = new AbortController();
 
-      const skill = await apiGetSkill(skillId, abortControllerRef.current.signal);
+      const skill = await apiGetSkill(skillId, selectSkillAbortRef.current.signal);
 
-      if (thisRequest !== selectSkillRequestRef.current) return;
+      if (!isMountedRef.current || thisRequest !== selectSkillRequestRef.current) return;
 
       dispatch({ type: 'SELECT_SKILL_SUCCESS', skill });
     } catch (error) {
-      if (thisRequest !== selectSkillRequestRef.current) return;
+      if (!isMountedRef.current || thisRequest !== selectSkillRequestRef.current) return;
       if (error instanceof Error && error.name === 'AbortError') return;
 
       dispatch({ type: 'SELECT_SKILL_ERROR', skillId, error: toSkillsError(error) });
@@ -297,8 +315,10 @@ export function SkillBuilderProvider({
 
     try {
       await apiUpdateSkill(skillId, { content: contentAtSaveTime });
+      if (!isMountedRef.current) return;
       dispatch({ type: 'SAVE_SUCCESS', contentAtSaveTime });
     } catch (error) {
+      if (!isMountedRef.current) return;
       dispatch({ type: 'SAVE_ERROR', error: toSkillsError(error) });
     }
   }, [state.selected]);
@@ -307,9 +327,11 @@ export function SkillBuilderProvider({
   const createSkill = useCallback(async (data: SkillCreatePayload): Promise<Skill | null> => {
     try {
       const skill = await apiCreateSkill(data);
+      if (!isMountedRef.current) return skill;
       await loadSkills();
       return skill;
     } catch (error) {
+      if (!isMountedRef.current) return null;
       console.error('Create skill error:', error);
       return null;
     }
@@ -319,9 +341,11 @@ export function SkillBuilderProvider({
   const updateSkillMetadata = useCallback(async (skillId: string, data: SkillUpdatePayload): Promise<boolean> => {
     try {
       await apiUpdateSkill(skillId, data);
+      if (!isMountedRef.current) return true;
       await loadSkills();
       return true;
     } catch (error) {
+      if (!isMountedRef.current) return false;
       console.error('Update skill error:', error);
       return false;
     }
@@ -331,17 +355,19 @@ export function SkillBuilderProvider({
   const deleteSkillFn = useCallback(async (skillId: string): Promise<boolean> => {
     try {
       await apiDeleteSkill(skillId);
-      // If this was the selected skill, deselect it
-      if (state.selected.status === 'loaded' && state.selected.skill.id === skillId) {
-        dispatch({ type: 'DESELECT_SKILL' });
-      }
+      if (!isMountedRef.current) return true;
+      // Clean up toggle request tracking for deleted skill
+      toggleRequestRef.current.delete(skillId);
+      // Use action that checks current state in reducer (avoids stale closure)
+      dispatch({ type: 'DESELECT_IF_SELECTED', skillId });
       await loadSkills();
       return true;
     } catch (error) {
+      if (!isMountedRef.current) return false;
       console.error('Delete skill error:', error);
       return false;
     }
-  }, [loadSkills, state.selected]);
+  }, [loadSkills]);
 
   // Toggle skill enabled (with optimistic update and rollback)
   const toggleSkillEnabled = useCallback(async (skillId: string, enabled: boolean) => {
@@ -354,11 +380,11 @@ export function SkillBuilderProvider({
     try {
       await apiToggleSkillEnabled(skillId, enabled);
 
-      // Stale request - ignore
-      if (toggleRequestRef.current.get(skillId) !== requestId) return;
+      // Stale request or unmounted - ignore
+      if (!isMountedRef.current || toggleRequestRef.current.get(skillId) !== requestId) return;
     } catch (error) {
-      // Rollback only if this is still the latest request
-      if (toggleRequestRef.current.get(skillId) === requestId) {
+      // Rollback only if still mounted and this is the latest request
+      if (isMountedRef.current && toggleRequestRef.current.get(skillId) === requestId) {
         dispatch({ type: 'SET_SKILL_ENABLED', skillId, enabled: !enabled });
         console.error('Toggle skill enabled error:', error);
       }
