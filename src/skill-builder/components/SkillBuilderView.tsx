@@ -8,7 +8,7 @@ interface SkillBuilderViewProps {
   onBack?: () => void;
 }
 
-export function SkillBuilderView({ onClose, onBack }: SkillBuilderViewProps) {
+export function SkillBuilderView({ onBack }: SkillBuilderViewProps) {
   const { state, saveSkill, deselectSkill, updateDraftContent, hasUnsavedChanges } = useSkillBuilder();
   const [showSkillsList, setShowSkillsList] = useState(state.selected.status === 'none');
 
@@ -18,9 +18,6 @@ export function SkillBuilderView({ onClose, onBack }: SkillBuilderViewProps) {
       setShowSkillsList(true);
     }
   }, [state.selected.status]);
-
-  // Default onClose handler if not provided
-  const handleClose = onClose || (() => {});
 
   // Handle back navigation
   const handleBack = () => {
@@ -53,7 +50,6 @@ export function SkillBuilderView({ onClose, onBack }: SkillBuilderViewProps) {
   return (
     <div className="maven-skill-builder">
       <SkillBuilderHeader
-        onClose={handleClose}
         showBackButton={true}
         onBack={handleBack}
         skillName={skillName}
@@ -101,7 +97,6 @@ export function SkillBuilderView({ onClose, onBack }: SkillBuilderViewProps) {
 
 // Header component
 interface SkillBuilderHeaderProps {
-  onClose: () => void;
   showBackButton?: boolean;
   onBack?: () => void;
   skillName?: string;
@@ -111,7 +106,6 @@ interface SkillBuilderHeaderProps {
 }
 
 function SkillBuilderHeader({
-  onClose,
   showBackButton,
   onBack,
   skillName,
@@ -156,19 +150,10 @@ function SkillBuilderHeader({
                 Saving...
               </>
             ) : (
-              <>Save{hasUnsavedChanges ? '*' : ''}</>
+              'Save'
             )}
           </button>
         )}
-        <button
-          className="maven-skill-builder-close"
-          onClick={onClose}
-          title="Close skill builder"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M18 6L6 18M6 6l12 12" />
-          </svg>
-        </button>
       </div>
     </div>
   );

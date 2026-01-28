@@ -268,18 +268,15 @@ export function SkillsList({ onSkillSelect }: SkillsListProps) {
                         </div>
                       </td>
                       <td>
-                        <button
-                          className={`maven-skills-toggle ${skill.enabled ? 'maven-skills-toggle-enabled' : 'maven-skills-toggle-disabled'}`}
-                          onClick={() => handleToggleEnabled(skill)}
-                          title={skill.enabled ? 'Click to disable' : 'Click to enable'}
-                        >
-                          <span className="maven-skills-toggle-track">
+                        <div className="maven-skills-toggle-wrapper">
+                          <button
+                            className={`maven-skills-toggle ${skill.enabled ? 'maven-skills-toggle-on' : 'maven-skills-toggle-off'}`}
+                            onClick={() => handleToggleEnabled(skill)}
+                            title={skill.enabled ? 'Click to disable' : 'Click to enable'}
+                          >
                             <span className="maven-skills-toggle-thumb" />
-                          </span>
-                          <span className="maven-skills-toggle-label">
-                            {skill.enabled ? 'Enabled' : 'Disabled'}
-                          </span>
-                        </button>
+                          </button>
+                        </div>
                       </td>
                       <td>
                         <div className="maven-skills-table-actions">

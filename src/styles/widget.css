@@ -6861,6 +6861,61 @@
   height: 16px;
 }
 
+/* Skills Toggle Switch */
+.maven-skills-toggle-wrapper {
+  display: flex;
+  align-items: center;
+}
+
+.maven-skills-toggle {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  min-width: 36px;
+  min-height: 20px;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.maven-skills-toggle-on {
+  background: var(--maven-accent);
+}
+
+.maven-skills-toggle-off {
+  background: var(--maven-border);
+}
+
+.maven-skills-toggle-thumb {
+  display: block;
+  position: absolute;
+  top: 2px;
+  width: 16px;
+  height: 16px;
+  background: white;
+  border-radius: 50%;
+  transition: transform 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+}
+
+.maven-skills-toggle-on .maven-skills-toggle-thumb {
+  transform: translateX(18px);
+}
+
+.maven-skills-toggle-off .maven-skills-toggle-thumb {
+  transform: translateX(2px);
+}
+
 /* Skill Modal - Large */
 .maven-skill-modal-large {
   max-width: 560px;

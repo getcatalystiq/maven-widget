@@ -112,7 +112,9 @@ export function SessionSidebar({
               </div>
             )}
 
-            {!isLoading && sessions.map((session) => (
+            {!isLoading && [...sessions]
+              .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+              .map((session) => (
               <button
                 key={session.sessionId}
                 onClick={() => onSessionSelect(session.sessionId)}

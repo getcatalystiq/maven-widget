@@ -17,15 +17,15 @@ interface CodeMirrorEditorProps {
   height?: string;
 }
 
-// Custom theme settings for dark mode
-const darkTheme = EditorView.theme({
+// Custom theme settings that work with Maven design system
+const editorTheme = EditorView.theme({
   '&': {
-    backgroundColor: 'var(--maven-bg-secondary, #1a1a2e)',
-    color: 'var(--maven-text-primary, #e0e0e0)',
+    backgroundColor: 'var(--maven-bg, #ffffff)',
+    color: 'var(--maven-text, #1a1a1a)',
   },
   '.cm-content': {
     caretColor: 'var(--maven-accent, #6366f1)',
-    fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+    fontFamily: 'var(--maven-font-mono, ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace)',
     fontSize: '14px',
     lineHeight: '1.6',
   },
@@ -33,26 +33,57 @@ const darkTheme = EditorView.theme({
     borderLeftColor: 'var(--maven-accent, #6366f1)',
   },
   '.cm-selectionBackground, ::selection': {
-    backgroundColor: 'var(--maven-accent-light, rgba(99, 102, 241, 0.3)) !important',
+    backgroundColor: 'rgba(99, 102, 241, 0.2) !important',
   },
   '.cm-gutters': {
-    backgroundColor: 'var(--maven-bg-tertiary, #12121f)',
-    color: 'var(--maven-text-muted, #6b7280)',
+    backgroundColor: 'var(--maven-bg-surface, #f5f5f5)',
+    color: 'var(--maven-text-muted, #9ca3af)',
     border: 'none',
-    borderRight: '1px solid var(--maven-border, #2a2a4a)',
+    borderRight: '1px solid var(--maven-border, #e5e5e5)',
   },
   '.cm-activeLineGutter': {
-    backgroundColor: 'var(--maven-bg-hover, #252540)',
+    backgroundColor: 'var(--maven-bg-hover, #f0f0f0)',
   },
   '.cm-activeLine': {
-    backgroundColor: 'var(--maven-bg-hover, rgba(37, 37, 64, 0.5))',
+    backgroundColor: 'var(--maven-bg-hover, rgba(0, 0, 0, 0.03))',
   },
   '.cm-foldPlaceholder': {
-    backgroundColor: 'var(--maven-bg-tertiary, #12121f)',
+    backgroundColor: 'var(--maven-bg-surface, #f5f5f5)',
     border: 'none',
-    color: 'var(--maven-text-muted, #6b7280)',
+    color: 'var(--maven-text-muted, #9ca3af)',
   },
-}, { dark: true });
+  // Markdown syntax highlighting
+  '.cm-header': {
+    color: 'var(--maven-text, #1a1a1a)',
+    fontWeight: '600',
+  },
+  '.cm-strong': {
+    fontWeight: '600',
+  },
+  '.cm-emphasis': {
+    fontStyle: 'italic',
+  },
+  '.cm-link': {
+    color: 'var(--maven-primary, #3b82f6)',
+    textDecoration: 'underline',
+  },
+  '.cm-url': {
+    color: 'var(--maven-text-secondary, #666)',
+  },
+  '.cm-comment': {
+    color: 'var(--maven-text-muted, #9ca3af)',
+  },
+  // YAML frontmatter
+  '.cm-atom': {
+    color: 'var(--maven-primary, #3b82f6)',
+  },
+  '.cm-string': {
+    color: 'var(--maven-success, #22c55e)',
+  },
+  '.cm-meta': {
+    color: 'var(--maven-warning, #f59e0b)',
+  },
+});
 
 export default function CodeMirrorEditor({
   value,
@@ -67,7 +98,7 @@ export default function CodeMirrorEditor({
       extensions={[
         markdown(),
         yaml(),
-        darkTheme,
+        editorTheme,
         EditorView.lineWrapping,
       ]}
       onChange={onChange}
