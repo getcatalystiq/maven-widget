@@ -231,7 +231,19 @@ export function SkillBuilderProvider({
   // Mount guard for write operations
   const isMountedRef = useRef(true);
 
-  // Initialize API on mount
+  // Initialize API synchronously on first render to avoid race conditions
+  // This runs before children mount and try to use the API
+  const isInitializedRef = useRef(false);
+  if (!isInitializedRef.current) {
+    initSkillsApi({
+      baseUrl: apiUrl,
+      getToken,
+      userId,
+    });
+    isInitializedRef.current = true;
+  }
+
+  // Re-initialize API when config changes
   useEffect(() => {
     initSkillsApi({
       baseUrl: apiUrl,

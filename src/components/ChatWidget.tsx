@@ -1600,14 +1600,14 @@ export function ChatWidget({ config, onSidebarWidthChange, onWidgetOpenChange, u
         />
 
         {/* Skill Builder - Overlay within widget */}
-        {showSkillBuilder && config.tenantId && getToken && config.userId && (
+        {showSkillBuilder && config.tenantId && getToken && (config.userId || auth?.user?.id) && config.controlPlaneUrl && (
           <div className="maven-skill-builder-overlay">
             <SkillBuilderProvider
               tenantId={config.tenantId}
-              apiUrl={apiUrl}
+              apiUrl={config.controlPlaneUrl}
               getToken={getToken}
               initialSkillId={skillBuilderSkillId || undefined}
-              userId={config.userId}
+              userId={config.userId || auth?.user?.id || ''}
             >
               <SkillBuilderView
                 onClose={() => {
