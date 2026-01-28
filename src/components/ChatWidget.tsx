@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { flushSync } from 'react-dom';
 import { MessageList } from './MessageList';
 import { InputArea } from './InputArea';
 import { SkillsBar } from './SkillsBar';
@@ -653,32 +654,43 @@ export function ChatWidget({ config, onSidebarWidthChange, onWidgetOpenChange, u
       let currentSessionId = forceNewSession ? null : state.sessionId;
       const wasNewSession = isNewSession;
 
-      // Batch SSE state updates for smoother streaming (reduces re-renders by 50-70%)
-      // Instead of updating on every chunk, batch updates at 16ms intervals (60fps)
+      // Streaming state updates - use flushSync to bypass React 18's automatic batching
+      // This ensures each chunk renders immediately for true character-by-character streaming
       let pendingUpdate = false;
       let lastUpdateTime = 0;
-      const BATCH_INTERVAL_MS = 16; // ~60fps
+      const BATCH_INTERVAL_MS = 16; // ~60fps - balance between smoothness and performance
 
-      const flushContentUpdate = () => {
+      const flushContentUpdate = (forceSync = false) => {
         if (!pendingUpdate) return;
         pendingUpdate = false;
-        setState((prev) => {
-          const messages = [...prev.messages];
-          const lastMessage = messages[messages.length - 1];
 
-          if (lastMessage && lastMessage.role === 'assistant') {
-            lastMessage.content = assistantContent;
-          } else {
-            messages.push({
-              id: uuidv4(),
-              role: 'assistant',
-              content: assistantContent,
-              timestamp: new Date(),
-            });
-          }
+        const updateFn = () => {
+          setState((prev) => {
+            const messages = [...prev.messages];
+            const lastMessage = messages[messages.length - 1];
 
-          return { ...prev, messages };
-        });
+            if (lastMessage && lastMessage.role === 'assistant') {
+              lastMessage.content = assistantContent;
+            } else {
+              messages.push({
+                id: uuidv4(),
+                role: 'assistant',
+                content: assistantContent,
+                timestamp: new Date(),
+              });
+            }
+
+            return { ...prev, messages };
+          });
+        };
+
+        // Use flushSync during active streaming to bypass React's batching
+        // This ensures text appears immediately instead of being batched
+        if (forceSync) {
+          flushSync(updateFn);
+        } else {
+          updateFn();
+        }
       };
 
       try {
@@ -703,15 +715,32 @@ export function ChatWidget({ config, onSidebarWidthChange, onWidgetOpenChange, u
               setSessions((prev) => [newSession, ...prev]);
             }
           } else if (event.event === 'chunk') {
+            console.log('[Maven Widget] Received chunk:', event.data.text?.slice(0, 30));
             assistantContent += event.data.text;
             pendingUpdate = true;
 
-            // Batch updates: only flush if enough time has passed since last update
-            const now = performance.now();
-            if (now - lastUpdateTime >= BATCH_INTERVAL_MS) {
-              flushContentUpdate();
-              lastUpdateTime = now;
-            }
+            // Force immediate update on every chunk for debugging
+            // TODO: Re-enable batching once streaming is confirmed working
+            flushSync(() => {
+              setState((prev) => {
+                const messages = [...prev.messages];
+                const lastMessage = messages[messages.length - 1];
+
+                if (lastMessage && lastMessage.role === 'assistant') {
+                  lastMessage.content = assistantContent;
+                } else {
+                  messages.push({
+                    id: uuidv4(),
+                    role: 'assistant',
+                    content: assistantContent,
+                    timestamp: new Date(),
+                  });
+                }
+
+                return { ...prev, messages };
+              });
+            });
+            pendingUpdate = false;
           } else if (event.event === 'progress') {
             // Format progress status with tool name if available
             const { tool, status } = event.data;
@@ -786,7 +815,7 @@ export function ChatWidget({ config, onSidebarWidthChange, onWidgetOpenChange, u
             const widgetData = event.data;
             console.log('[Maven Widget] Widget received:', widgetData);
             // Flush any pending content first to ensure assistant message exists
-            flushContentUpdate();
+            flushContentUpdate(true);
             setState((prev) => {
               const messages = [...prev.messages];
               let lastMessage = messages[messages.length - 1];

@@ -91,10 +91,26 @@ export class SSEClient {
               case 'start':
                 eventType = 'session';
                 data = { sessionId: parsed.sessionId };
+                console.log('[Maven Widget] Stream started:', parsed.sessionId);
                 break;
               case 'content':
-                eventType = 'chunk';
-                data = { text: parsed.text };
+                // Skip final accumulated content if we've been receiving stream events
+                // The stream events already provided the text incrementally
+                // This event just contains the full text at the end
+                console.log('[Maven Widget] Skipping final content event (already streamed)');
+                continue;
+              case 'stream':
+                // Handle Claude Agent SDK streaming events
+                // Format: {"type":"stream","event":{"type":"content_block_delta","delta":{"text":"..."}}}
+                console.log('[Maven Widget] Stream event:', parsed.event?.type, parsed.event?.delta?.text?.slice(0, 20));
+                if (parsed.event?.type === 'content_block_delta' && parsed.event?.delta?.text) {
+                  eventType = 'chunk';
+                  data = { text: parsed.event.delta.text };
+                  console.log('[Maven Widget] Emitting chunk:', data.text.slice(0, 20));
+                } else {
+                  // Skip non-text stream events (message_start, content_block_start, etc.)
+                  continue;
+                }
                 break;
               case 'tool_use':
                 eventType = 'progress';
