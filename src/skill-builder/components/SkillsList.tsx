@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useSkillBuilder } from '../context/SkillBuilderContext';
-import { SkillSummary } from '../types';
+import type { Skill, SkillCreatePayload } from '../types';
+import { validateSkillName } from '../types';
+import { preloadEditor } from './SkillEditor';
 
 interface SkillsListProps {
   onSkillSelect: () => void;
@@ -28,13 +30,6 @@ const EditIcon = () => (
   </svg>
 );
 
-const CodeIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="maven-icon">
-    <polyline points="16 18 22 12 16 6" />
-    <polyline points="8 6 2 12 8 18" />
-  </svg>
-);
-
 const TrashIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="maven-icon">
     <polyline points="3 6 5 6 21 6" />
@@ -49,99 +44,90 @@ const XIcon = () => (
   </svg>
 );
 
-// Slug generator
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+// Default SKILL.md template
+const DEFAULT_SKILL_CONTENT = `---
+name: "{name}"
+description: "{description}"
+---
+
+# {name}
+
+{description}
+
+## Instructions
+
+Add your skill instructions here.
+`;
+
+function generateSkillContent(name: string, description: string): string {
+  return DEFAULT_SKILL_CONTENT
+    .replace(/{name}/g, name)
+    .replace(/{description}/g, description || 'No description provided.');
 }
 
-// Expanded emoji palette
-const EMOJI_CATEGORIES = [
-  ['⚡', '🔧', '📊', '📈', '🎯', '💡', '🚀', '✨'],
-  ['📝', '📋', '📁', '🔍', '🔔', '💬', '📧', '📱'],
-  ['🛒', '💳', '📦', '🏷️', '🎁', '💰', '📉', '🏦'],
-  ['👤', '👥', '🔐', '🔑', '🛡️', '⚙️', '🔄', '📡'],
-  ['🌐', '🔗', '📤', '📥', '☁️', '💾', '🗄️', '🖥️'],
-  ['📅', '⏰', '🕐', '📆', '✅', '❌', '⚠️', 'ℹ️'],
-  ['🎨', '🖼️', '📸', '🎬', '🎵', '🎮', '🏆', '🎪'],
-  ['🌟', '💎', '🔥', '❤️', '🌈', '🍀', '🌙', '☀️'],
-];
-
 export function SkillsList({ onSkillSelect, onClose: _onClose }: SkillsListProps) {
-  const { state, loadSkills, selectSkill, createSkill, updateSkill, deleteSkill } = useSkillBuilder();
+  const {
+    state,
+    loadSkills,
+    selectSkill,
+    createSkill,
+    updateSkillMetadata,
+    deleteSkill,
+    toggleSkillEnabled,
+  } = useSkillBuilder();
+
   const [searchQuery, setSearchQuery] = useState('');
   const [showModal, setShowModal] = useState(false);
-  const [editingSkill, setEditingSkill] = useState<SkillSummary | null>(null);
+  const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<SkillSummary | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Skill | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
-    slug: '',
     description: '',
-    emoji: '⚡',
-    category: 'general',
-    url_patterns: [''],
-    variables: [''],
   });
+  const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
     loadSkills();
   }, [loadSkills]);
-
-  // Auto-generate slug from name when creating
-  useEffect(() => {
-    if (!editingSkill && formData.name) {
-      setFormData(prev => ({ ...prev, slug: slugify(formData.name) }));
-    }
-  }, [formData.name, editingSkill]);
 
   // Reset form when modal opens/closes
   useEffect(() => {
     if (editingSkill) {
       setFormData({
         name: editingSkill.name,
-        slug: editingSkill.slug,
         description: editingSkill.description || '',
-        emoji: editingSkill.emoji || '1',
-        category: editingSkill.category || 'general',
-        url_patterns: editingSkill.url_patterns?.length ? editingSkill.url_patterns : [''],
-        variables: editingSkill.variables?.length ? editingSkill.variables : [''],
       });
     } else {
       setFormData({
         name: '',
-        slug: '',
         description: '',
-        emoji: '⚡',
-        category: 'general',
-        url_patterns: [''],
-        variables: [''],
       });
     }
-    setShowEmojiPicker(false);
+    setFormError(null);
   }, [editingSkill, showModal]);
 
-  const filteredSkills = state.skills.filter(skill =>
+  // Get skills from state
+  const skills = state.list.status === 'loaded' ? state.list.skills : [];
+  const isLoading = state.list.status === 'loading';
+
+  const filteredSkills = skills.filter(skill =>
     skill.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    skill.slug.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (skill.description && skill.description.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
-  const handleOpenEditor = (skill: SkillSummary) => {
-    selectSkill(skill);
+  const handleOpenEditor = async (skill: Skill) => {
+    await selectSkill(skill.id);
     onSkillSelect();
   };
 
-  const handleEditMetadata = (skill: SkillSummary) => {
+  const handleEditMetadata = (skill: Skill) => {
     setEditingSkill(skill);
     setShowModal(true);
   };
 
-  const handleDeleteClick = (skill: SkillSummary) => {
+  const handleDeleteClick = (skill: Skill) => {
     setDeleteTarget(skill);
   };
 
@@ -153,78 +139,51 @@ export function SkillsList({ onSkillSelect, onClose: _onClose }: SkillsListProps
     setDeleteTarget(null);
   };
 
+  const handleToggleEnabled = async (skill: Skill) => {
+    await toggleSkillEnabled(skill.id, !skill.enabled);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError(null);
+
+    // Validate name
+    const validation = validateSkillName(formData.name);
+    if (!validation.valid) {
+      setFormError(validation.error || 'Invalid skill name');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
       if (editingSkill) {
-        await updateSkill(editingSkill.id, {
-          name: formData.name,
+        // Update existing skill metadata
+        await updateSkillMetadata(editingSkill.id, {
           description: formData.description || undefined,
-          emoji: formData.emoji,
-          category: formData.category,
-          url_patterns: formData.url_patterns.filter(p => p.trim()),
-          variables: formData.variables.filter(v => v.trim()),
         });
       } else {
-        const skill = await createSkill(formData.name);
+        // Create new skill with default content template
+        const content = generateSkillContent(formData.name, formData.description);
+        const data: SkillCreatePayload = {
+          name: formData.name,
+          description: formData.description || '',
+          content,
+        };
+        const skill = await createSkill(data);
         if (skill) {
-          await updateSkill(skill.id, {
-            description: formData.description || undefined,
-            emoji: formData.emoji,
-            category: formData.category,
-            url_patterns: formData.url_patterns.filter(p => p.trim()),
-            variables: formData.variables.filter(v => v.trim()),
-          });
+          // Optionally open the editor immediately after creation
+          await selectSkill(skill.id);
+          onSkillSelect();
         }
       }
       setShowModal(false);
       setEditingSkill(null);
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'An error occurred');
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const updateUrlPattern = (index: number, value: string) => {
-    const newPatterns = [...formData.url_patterns];
-    newPatterns[index] = value;
-    setFormData({ ...formData, url_patterns: newPatterns });
-  };
-
-  const addUrlPattern = () => {
-    setFormData({ ...formData, url_patterns: [...formData.url_patterns, ''] });
-  };
-
-  const removeUrlPattern = (index: number) => {
-    setFormData({
-      ...formData,
-      url_patterns: formData.url_patterns.filter((_, i) => i !== index),
-    });
-  };
-
-  const updateVariable = (index: number, value: string) => {
-    const newVariables = [...formData.variables];
-    newVariables[index] = value;
-    setFormData({ ...formData, variables: newVariables });
-  };
-
-  const addVariable = () => {
-    setFormData({ ...formData, variables: [...formData.variables, ''] });
-  };
-
-  const removeVariable = (index: number) => {
-    setFormData({
-      ...formData,
-      variables: formData.variables.filter((_, i) => i !== index),
-    });
-  };
-
-  const handleEmojiSelect = (e: React.MouseEvent, emoji: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setFormData({ ...formData, emoji });
-    setShowEmojiPicker(false);
   };
 
   return (
@@ -254,112 +213,107 @@ export function SkillsList({ onSkillSelect, onClose: _onClose }: SkillsListProps
 
       {/* Content */}
       <div className="maven-skills-content">
-
-        {/* Table */}
         <div className="maven-skills-list-content">
-        {state.isLoadingSkills ? (
-          <div className="maven-skills-list-loading">
-            <div className="maven-skills-list-skeleton" />
-            <div className="maven-skills-list-skeleton" />
-            <div className="maven-skills-list-skeleton" />
-          </div>
-        ) : filteredSkills.length === 0 ? (
-          <div className="maven-skills-list-empty">
-            {searchQuery ? (
-              <p>No skills match "{searchQuery}"</p>
-            ) : (
-              <>
-                <div className="maven-skills-list-empty-icon">1</div>
-                <p>No skills yet</p>
-                <button className="maven-admin-btn maven-admin-btn-primary" onClick={() => setShowModal(true)}>
-                  Create your first skill
-                </button>
-              </>
-            )}
-          </div>
-        ) : (
-          <div className="maven-skills-table-wrapper">
-          <table className="maven-skills-table">
-            <thead>
-              <tr>
-                <th>Skill</th>
-                <th>Category</th>
-                <th>URL Patterns</th>
-                <th>Variables</th>
-                <th style={{ textAlign: 'right' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredSkills.map((skill) => (
-                <tr key={skill.id}>
-                  <td>
-                    <div className="maven-skills-table-skill">
-                      <span className="maven-skills-table-emoji">{skill.emoji || '1'}</span>
-                      <div>
-                        <div className="maven-skills-table-name">{skill.name}</div>
-                        {skill.description && (
-                          <div className="maven-skills-table-description">{skill.description}</div>
-                        )}
-                      </div>
-                    </div>
-                  </td>
-                  <td>
-                    <span className="maven-skills-table-badge">{skill.category || 'general'}</span>
-                  </td>
-                  <td>
-                    <div className="maven-skills-table-patterns">
-                      {skill.url_patterns?.slice(0, 2).map((pattern, i) => (
-                        <span key={i} className="maven-skills-table-badge maven-skills-table-badge-info">{pattern}</span>
-                      ))}
-                      {(skill.url_patterns?.length || 0) > 2 && (
-                        <span className="maven-skills-table-badge">+{(skill.url_patterns?.length || 0) - 2}</span>
-                      )}
-                      {!skill.url_patterns?.length && <span className="maven-skills-table-muted">-</span>}
-                    </div>
-                  </td>
-                  <td>
-                    <span className="maven-skills-table-muted maven-skills-table-mono">
-                      {skill.variables?.length || '-'}
-                    </span>
-                  </td>
-                  <td>
-                    <div className="maven-skills-table-actions">
-                      <button
-                        onClick={() => handleOpenEditor(skill)}
-                        title="Open in IDE"
-                        className="maven-skills-table-action maven-skills-table-action-code"
-                      >
-                        <CodeIcon />
-                      </button>
-                      <button
-                        onClick={() => handleEditMetadata(skill)}
-                        title="Edit metadata"
-                        className="maven-skills-table-action"
-                      >
-                        <EditIcon />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteClick(skill)}
-                        title="Delete skill"
-                        className="maven-skills-table-action maven-skills-table-action-delete"
-                      >
-                        <TrashIcon />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          </div>
-        )}
+          {isLoading ? (
+            <div className="maven-skills-list-loading">
+              <div className="maven-skills-list-skeleton" />
+              <div className="maven-skills-list-skeleton" />
+              <div className="maven-skills-list-skeleton" />
+            </div>
+          ) : state.list.status === 'error' ? (
+            <div className="maven-skills-list-error">
+              <p>Failed to load skills: {state.list.error.message}</p>
+              <button className="maven-admin-btn maven-admin-btn-primary" onClick={loadSkills}>
+                Retry
+              </button>
+            </div>
+          ) : filteredSkills.length === 0 ? (
+            <div className="maven-skills-list-empty">
+              {searchQuery ? (
+                <p>No skills match "{searchQuery}"</p>
+              ) : (
+                <>
+                  <div className="maven-skills-list-empty-icon">+</div>
+                  <p>No skills yet</p>
+                  <button className="maven-admin-btn maven-admin-btn-primary" onClick={() => setShowModal(true)}>
+                    Create your first skill
+                  </button>
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="maven-skills-table-wrapper">
+              <table className="maven-skills-table">
+                <thead>
+                  <tr>
+                    <th>Skill</th>
+                    <th>Description</th>
+                    <th>Status</th>
+                    <th style={{ textAlign: 'right' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredSkills.map((skill) => (
+                    <tr key={skill.id}>
+                      <td>
+                        <div
+                          className="maven-skills-table-skill"
+                          onMouseEnter={preloadEditor}
+                        >
+                          <div className="maven-skills-table-name">{skill.name}</div>
+                        </div>
+                      </td>
+                      <td>
+                        <div className="maven-skills-table-description">
+                          {skill.description || <span className="maven-skills-table-muted">No description</span>}
+                        </div>
+                      </td>
+                      <td>
+                        <button
+                          className={`maven-skills-toggle ${skill.enabled ? 'maven-skills-toggle-enabled' : 'maven-skills-toggle-disabled'}`}
+                          onClick={() => handleToggleEnabled(skill)}
+                          title={skill.enabled ? 'Click to disable' : 'Click to enable'}
+                        >
+                          <span className="maven-skills-toggle-track">
+                            <span className="maven-skills-toggle-thumb" />
+                          </span>
+                          <span className="maven-skills-toggle-label">
+                            {skill.enabled ? 'Enabled' : 'Disabled'}
+                          </span>
+                        </button>
+                      </td>
+                      <td>
+                        <div className="maven-skills-table-actions">
+                          <button
+                            onClick={() => handleOpenEditor(skill)}
+                            onMouseEnter={preloadEditor}
+                            title="Edit skill content"
+                            className="maven-skills-table-action maven-skills-table-action-primary"
+                          >
+                            <EditIcon />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteClick(skill)}
+                            title="Delete skill"
+                            className="maven-skills-table-action maven-skills-table-action-delete"
+                          >
+                            <TrashIcon />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Create/Edit Skill Modal */}
       {showModal && (
         <div className="maven-modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="maven-modal maven-modal-large" onClick={(e) => e.stopPropagation()}>
+          <div className="maven-modal" onClick={(e) => e.stopPropagation()}>
             <div className="maven-modal-header">
               <h3>{editingSkill ? 'Edit Skill' : 'Create Skill'}</h3>
               <button onClick={() => setShowModal(false)} className="maven-modal-close">
@@ -370,84 +324,37 @@ export function SkillsList({ onSkillSelect, onClose: _onClose }: SkillsListProps
             <form onSubmit={handleSubmit} className="maven-modal-form">
               <div className="maven-modal-type-indicator">
                 <span className="maven-modal-type-label">
-                  {editingSkill ? 'Edit Skill Configuration' : 'New Skill'}
+                  {editingSkill ? 'Edit Skill Metadata' : 'New Skill'}
                 </span>
                 <span className="maven-modal-type-hint">
                   {editingSkill
-                    ? 'Update the skill metadata and configuration'
+                    ? 'Update the skill name and description'
                     : 'Create a new skill with custom behavior'}
                 </span>
               </div>
 
-              {/* Name with Emoji */}
-              <div className="maven-modal-field">
-                <label>Name <span className="maven-modal-required">*</span></label>
-                <div className="maven-skill-name-row">
-                  <div className="maven-skill-emoji-picker-wrapper">
-                    <button
-                      type="button"
-                      className="maven-skill-emoji-button"
-                      onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                    >
-                      {formData.emoji}
-                    </button>
-                    {showEmojiPicker && (
-                      <>
-                        <div
-                          className="maven-skill-emoji-backdrop"
-                          onClick={() => setShowEmojiPicker(false)}
-                        />
-                        <div
-                          className="maven-skill-emoji-dropdown"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {EMOJI_CATEGORIES.map((row, rowIndex) => (
-                            <div key={rowIndex} className="maven-skill-emoji-row">
-                              {row.map((emoji) => (
-                                <button
-                                  key={emoji}
-                                  type="button"
-                                  className="maven-skill-emoji-option"
-                                  onClick={(e) => handleEmojiSelect(e, emoji)}
-                                >
-                                  {emoji}
-                                </button>
-                              ))}
-                            </div>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                  <input
-                    type="text"
-                    required
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    placeholder="Get Order Status"
-                    className="maven-skill-name-input"
-                  />
-                </div>
-              </div>
-
-              {/* Slug - display-only when editing, editable when creating */}
-              {editingSkill ? (
-                <div className="maven-modal-field">
-                  <label>Slug</label>
-                  <div className="maven-skill-slug-display">{formData.slug}</div>
-                </div>
-              ) : (
-                <div className="maven-modal-field">
-                  <label>Slug <span className="maven-modal-optional">(auto-generated)</span></label>
-                  <input
-                    type="text"
-                    value={formData.slug}
-                    onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
-                    placeholder="auto-generated from name"
-                    className="maven-skill-form-mono"
-                  />
+              {formError && (
+                <div className="maven-modal-error">
+                  {formError}
                 </div>
               )}
+
+              {/* Name */}
+              <div className="maven-modal-field">
+                <label>Name <span className="maven-modal-required">*</span></label>
+                <input
+                  type="text"
+                  required
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  placeholder="my-skill-name"
+                  disabled={!!editingSkill}
+                  className={editingSkill ? 'maven-modal-field-disabled' : ''}
+                />
+                <span className="maven-modal-field-hint">
+                  Letters, numbers, hyphens, and underscores only. 3-50 characters.
+                </span>
+              </div>
 
               {/* Description */}
               <div className="maven-modal-field">
@@ -456,74 +363,8 @@ export function SkillsList({ onSkillSelect, onClose: _onClose }: SkillsListProps
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   rows={3}
-                  placeholder="Help users check their order status"
+                  placeholder="Describe what this skill does..."
                 />
-              </div>
-
-              {/* Category */}
-              <div className="maven-modal-field">
-                <label>Category <span className="maven-modal-required">*</span></label>
-                <select
-                  required
-                  value={formData.category}
-                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                >
-                  <option value="general">General</option>
-                  <option value="support">Support</option>
-                  <option value="sales">Sales</option>
-                  <option value="documentation">Documentation</option>
-                  <option value="custom">Custom</option>
-                </select>
-              </div>
-
-              {/* URL Patterns */}
-              <div className="maven-modal-field">
-                <label>URL Patterns <span className="maven-modal-optional">(optional)</span></label>
-                <div className="maven-skill-form-list">
-                  {formData.url_patterns.map((pattern, index) => (
-                    <div key={index} className="maven-skill-form-list-item">
-                      <input
-                        type="text"
-                        value={pattern}
-                        onChange={(e) => updateUrlPattern(index, e.target.value)}
-                        placeholder="/orders/*"
-                        className="maven-skill-form-mono"
-                      />
-                      {formData.url_patterns.length > 1 && (
-                        <button type="button" onClick={() => removeUrlPattern(index)} className="maven-skill-form-remove">
-                          <XIcon />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                  <button type="button" onClick={addUrlPattern} className="maven-skill-form-add">
-                    <PlusIcon /> Add URL Pattern
-                  </button>
-                </div>
-              </div>
-
-              {/* Variables */}
-              <div className="maven-modal-field">
-                <label>Variables <span className="maven-modal-optional">(optional)</span></label>
-                <div className="maven-skill-form-list">
-                  {formData.variables.map((variable, index) => (
-                    <div key={index} className="maven-skill-form-list-item">
-                      <input
-                        type="text"
-                        value={variable}
-                        onChange={(e) => updateVariable(index, e.target.value)}
-                        placeholder="orderNumber"
-                        className="maven-skill-form-mono"
-                      />
-                      <button type="button" onClick={() => removeVariable(index)} className="maven-skill-form-remove">
-                        <XIcon />
-                      </button>
-                    </div>
-                  ))}
-                  <button type="button" onClick={addVariable} className="maven-skill-form-add">
-                    <PlusIcon /> Add Variable
-                  </button>
-                </div>
               </div>
 
               {/* Actions */}
