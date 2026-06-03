@@ -20,7 +20,7 @@
     "react-dom": "^19.2.1",
     "react-resizable-panels": "^2.1.7",
     "react-window": "^2.2.3",
-    "uuid": "^13.0.0"
+    "uuid": "^14.0.0"
   },
   "devDependencies": {
     "@types/dom-speech-recognition": "^0.0.7",
